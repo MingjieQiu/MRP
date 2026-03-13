@@ -1,0 +1,172 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
+from sklearn.metrics import accuracy_score
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+
+# Device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+# ----------------------------
+# RNN Models
+# ----------------------------
+class GRUClassifier(nn.Module):
+    def __init__(self, vocab_size, embed_dim=128, hidden_dim=256):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_dim)
+        self.gru = nn.GRU(embed_dim, hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, 2)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        _, h = self.gru(x)
+        out = self.fc(h[-1])
+        return out
+
+
+class BiLSTMClassifier(nn.Module):
+    def __init__(self, vocab_size, embed_dim=128, hidden_dim=256):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_dim)
+        self.lstm = nn.LSTM(embed_dim, hidden_dim, bidirectional=True, batch_first=True)
+        self.fc = nn.Linear(hidden_dim * 2, 2)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        _, (h, _) = self.lstm(x)
+        h = torch.cat((h[-2], h[-1]), dim=1)
+        out = self.fc(h)
+        return out
+
+
+# ----------------------------
+# Load IMDb Dataset
+# ----------------------------
+dataset = load_dataset("imdb")
+
+# Tokenizer for RNN (simple integer tokenization)
+tokenizer_rnn = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+
+
+def tokenize_rnn(batch):
+    # return token ids only
+    return tokenizer_rnn(batch["text"], padding="max_length", truncation=True, max_length=256)
+
+
+dataset_rnn = dataset.map(tokenize_rnn, batched=True)
+dataset_rnn.set_format(type="torch", columns=["input_ids", "label"])
+
+train_loader = DataLoader(dataset_rnn["train"], batch_size=32, shuffle=True)
+test_loader = DataLoader(dataset_rnn["test"], batch_size=32)
+
+
+# ----------------------------
+# RNN Training / Evaluation
+# ----------------------------
+def train_rnn(model):
+    model.to(device)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()
+    model.train()
+    for epoch in range(3):
+        for batch in tqdm(train_loader, desc="Training RNN"):
+            x = batch["input_ids"].to(device)
+            y = batch["label"].to(device)
+            optimizer.zero_grad()
+            output = model(x)
+            loss = criterion(output, y)
+            loss.backward()
+            optimizer.step()
+
+
+def eval_rnn(model):
+    model.eval()
+    preds, labels = [], []
+    with torch.no_grad():
+        for batch in test_loader:
+            x = batch["input_ids"].to(device)
+            y = batch["label"]
+            output = model(x)
+            p = torch.argmax(output, dim=1).cpu()
+            preds.extend(p.numpy())
+            labels.extend(y.numpy())
+    return accuracy_score(labels, preds)
+
+
+# ----------------------------
+# Transformer Evaluation
+# ----------------------------
+def run_transformer(model_name):
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    def tokenize(batch):
+        return tokenizer(batch["text"], truncation=True, padding="max_length", max_length=256)
+
+    encoded = dataset.map(tokenize, batched=True)
+    encoded.set_format(type="torch", columns=["input_ids", "attention_mask", "label"])
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
+    args = TrainingArguments(
+        output_dir="./results",
+        learning_rate=2e-5,
+        per_device_train_batch_size=8,
+        per_device_eval_batch_size=8,
+        num_train_epochs=2,
+        evaluation_strategy="epoch",
+        logging_steps=500,
+        save_strategy="no",
+        disable_tqdm=False
+    )
+    trainer = Trainer(model=model, args=args, train_dataset=encoded["train"], eval_dataset=encoded["test"])
+    trainer.train()
+    metrics = trainer.evaluate()
+    return metrics["eval_accuracy"]
+
+
+# ----------------------------
+# Run All Models
+# ----------------------------
+results = {}
+
+# RNN models
+vocab_size = tokenizer_rnn.vocab_size
+rnn_models = {
+    "GRU": GRUClassifier(vocab_size),
+    "BiLSTM": BiLSTMClassifier(vocab_size)
+}
+
+for name, model in rnn_models.items():
+    print(f"\nTraining {name}")
+    train_rnn(model)
+    acc = eval_rnn(model)
+    results[name] = acc
+    print(f"{name} Accuracy: {acc:.4f}")
+
+# Transformer models
+transformer_models = {
+    "DistilBERT": "distilbert-base-uncased",
+    "RoBERTa": "roberta-base",
+    "DeBERTa": "microsoft/deberta-v3-base"
+}
+
+for name, model_name in transformer_models.items():
+    print(f"\nTraining {name}")
+    acc = run_transformer(model_name)
+    results[name] = acc
+    print(f"{name} Accuracy: {acc:.4f}")
+
+# ----------------------------
+# Plot Results
+# ----------------------------
+plt.figure(figsize=(8, 5))
+plt.bar(results.keys(), results.values(), color=['skyblue', 'lightgreen', 'orange', 'red', 'purple'])
+plt.ylabel("Accuracy")
+plt.title("Sentiment Model Comparison on IMDb")
+plt.ylim(0, 1)
+for i, v in enumerate(results.values()):
+    plt.text(i, v + 0.01, f"{v:.2f}", ha='center')
+plt.show()
