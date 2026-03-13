@@ -7,6 +7,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trai
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import pandas as pd
 
 # Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -49,12 +50,11 @@ class BiLSTMClassifier(nn.Module):
 # ----------------------------
 dataset = load_dataset("imdb")
 
-# Tokenizer for RNN (simple integer tokenization)
+# Tokenizer for RNN (integer tokenization)
 tokenizer_rnn = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 
 
 def tokenize_rnn(batch):
-    # return token ids only
     return tokenizer_rnn(batch["text"], padding="max_length", truncation=True, max_length=256)
 
 
@@ -74,7 +74,7 @@ def train_rnn(model):
     criterion = nn.CrossEntropyLoss()
     model.train()
     for epoch in range(3):
-        for batch in tqdm(train_loader, desc="Training RNN"):
+        for batch in tqdm(train_loader, desc=f"Training {model.__class__.__name__}"):
             x = batch["input_ids"].to(device)
             y = batch["label"].to(device)
             optimizer.zero_grad()
@@ -109,14 +109,18 @@ def run_transformer(model_name):
 
     encoded = dataset.map(tokenize, batched=True)
     encoded.set_format(type="torch", columns=["input_ids", "attention_mask", "label"])
-    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name, 
+        num_labels=2,
+        ignore_mismatched_sizes=True
+    )
     args = TrainingArguments(
         output_dir="./results",
         learning_rate=2e-5,
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
         num_train_epochs=2,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         logging_steps=500,
         save_strategy="no",
         disable_tqdm=False
@@ -139,12 +143,12 @@ rnn_models = {
     "BiLSTM": BiLSTMClassifier(vocab_size)
 }
 
-for name, model in rnn_models.items():
-    print(f"\nTraining {name}")
-    train_rnn(model)
-    acc = eval_rnn(model)
-    results[name] = acc
-    print(f"{name} Accuracy: {acc:.4f}")
+# for name, model in rnn_models.items():
+#     print(f"\nTraining {name}")
+#     train_rnn(model)
+#     acc = eval_rnn(model)
+#     results[name] = acc
+#     print(f"{name} Accuracy: {acc:.4f}")
 
 # Transformer models
 transformer_models = {
@@ -160,7 +164,14 @@ for name, model_name in transformer_models.items():
     print(f"{name} Accuracy: {acc:.4f}")
 
 # ----------------------------
-# Plot Results
+# Save Results to CSV
+# ----------------------------
+df = pd.DataFrame(list(results.items()), columns=["Model", "Accuracy"])
+df.to_csv("results.csv", index=False)
+print("\nAccuracy results saved to results.csv")
+
+# ----------------------------
+# Plot Results and Save PNG
 # ----------------------------
 plt.figure(figsize=(8, 5))
 plt.bar(results.keys(), results.values(), color=['skyblue', 'lightgreen', 'orange', 'red', 'purple'])
@@ -169,4 +180,6 @@ plt.title("Sentiment Model Comparison on IMDb")
 plt.ylim(0, 1)
 for i, v in enumerate(results.values()):
     plt.text(i, v + 0.01, f"{v:.2f}", ha='center')
+plt.savefig("accuracy_comparison.png", bbox_inches="tight")
 plt.show()
+print("Bar chart saved to accuracy_comparison.png")
