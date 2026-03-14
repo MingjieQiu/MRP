@@ -18,12 +18,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 # ----------------------------
-# Load IMDb Dataset (subset for local run)
+# Load IMDb Dataset (larger subset for better training)
 # ----------------------------
 dataset = load_dataset("imdb")
 random.seed(42)
-train_indices = random.sample(range(len(dataset["train"])), 2000)
-test_indices = random.sample(range(len(dataset["test"])), 500)
+# Increase dataset size for better learning
+train_indices = random.sample(range(len(dataset["train"])), 5000)
+test_indices = random.sample(range(len(dataset["test"])), 1000)
 
 train_texts = [dataset["train"][i]["text"] for i in train_indices]
 train_labels = [dataset["train"][i]["label"] for i in train_indices]
@@ -33,7 +34,7 @@ test_labels = [dataset["test"][i]["label"] for i in test_indices]
 # ----------------------------
 # Simple integer tokenizer for RNNs
 # ----------------------------
-def build_vocab(texts, max_vocab=5000):
+def build_vocab(texts, max_vocab=10000):
     counter = Counter()
     for t in texts:
         counter.update(t.lower().split())
@@ -73,37 +74,45 @@ test_loader = DataLoader(test_dataset_rnn, batch_size=32)
 # RNN Models
 # ----------------------------
 class GRUClassifier(nn.Module):
-    def __init__(self, vocab_size, embed_dim=128, hidden_dim=256):
+    def __init__(self, vocab_size, embed_dim=256, hidden_dim=512):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         self.gru = nn.GRU(embed_dim, hidden_dim, batch_first=True)
+        self.dropout = nn.Dropout(0.3)
         self.fc = nn.Linear(hidden_dim, 2)
+        
     def forward(self, x):
         x = self.embedding(x)
         _, h = self.gru(x)
-        return self.fc(h[-1])
+        h = self.dropout(h[-1])
+        return self.fc(h)
 
 class BiLSTMClassifier(nn.Module):
-    def __init__(self, vocab_size, embed_dim=128, hidden_dim=256):
+    def __init__(self, vocab_size, embed_dim=256, hidden_dim=512):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         self.lstm = nn.LSTM(embed_dim, hidden_dim, bidirectional=True, batch_first=True)
-        self.fc = nn.Linear(hidden_dim*2, 2)
+        self.dropout = nn.Dropout(0.3)
+        self.fc = nn.Linear(hidden_dim * 2, 2)
+        
     def forward(self, x):
         x = self.embedding(x)
         _, (h, _) = self.lstm(x)
         h = torch.cat((h[-2], h[-1]), dim=1)
+        h = self.dropout(h)
         return self.fc(h)
 
 # ----------------------------
 # RNN Training/Evaluation
 # ----------------------------
-def train_rnn(model, epochs=3):
+def train_rnn(model, epochs=5):
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.CrossEntropyLoss()
     model.train()
+    
     for epoch in range(epochs):
+        total_loss = 0
         for batch in tqdm(train_loader, desc=f"Training {model.__class__.__name__}"):
             x = batch["input_ids"].to(device)
             y = batch["label"].to(device)
@@ -112,6 +121,10 @@ def train_rnn(model, epochs=3):
             loss = criterion(out, y)
             loss.backward()
             optimizer.step()
+            total_loss += loss.item()
+        
+        avg_loss = total_loss / len(train_loader)
+        print(f"Epoch {epoch+1}, Loss: {avg_loss:.4f}")
 
 def eval_rnn(model):
     model.eval()
