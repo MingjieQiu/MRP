@@ -173,7 +173,7 @@ def run_transformer(model_name):
 
     trainer.train()
     metrics = trainer.evaluate()
-    return metrics["accuracy"]
+    return metrics['eval_accuracy']
 
 # ----------------------------
 # Run All Models
