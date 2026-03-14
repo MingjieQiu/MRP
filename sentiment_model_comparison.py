@@ -77,43 +77,59 @@ test_loader = DataLoader(test_dataset_rnn, batch_size=32)
 class GRUClassifier(nn.Module):
     def __init__(self, vocab_size, embed_dim=300, hidden_dim=600):
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_dim)
-        self.gru = nn.GRU(embed_dim, hidden_dim, batch_first=True)
-        self.dropout = nn.Dropout(0.4)
-        self.fc = nn.Linear(hidden_dim, 2)
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
+        self.gru = nn.GRU(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)
+        self.dropout = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(hidden_dim * 2, 256)
+        self.fc2 = nn.Linear(256, 2)
+        self.relu = nn.ReLU()
         
     def forward(self, x):
         x = self.embedding(x)
-        _, h = self.gru(x)
-        h = self.dropout(h[-1])
-        return self.fc(h)
+        output, h = self.gru(x)
+        # Use last hidden state from both directions
+        h = torch.cat((h[-2], h[-1]), dim=1)
+        h = self.dropout(h)
+        h = self.relu(self.fc1(h))
+        h = self.dropout(h)
+        return self.fc2(h)
 
 class BiLSTMClassifier(nn.Module):
     def __init__(self, vocab_size, embed_dim=300, hidden_dim=600):
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_dim)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, bidirectional=True, batch_first=True)
-        self.dropout = nn.Dropout(0.4)
-        self.fc = nn.Linear(hidden_dim * 2, 2)
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
+        self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)
+        self.dropout = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(hidden_dim * 2, 256)
+        self.fc2 = nn.Linear(256, 2)
+        self.relu = nn.ReLU()
         
     def forward(self, x):
         x = self.embedding(x)
-        _, (h, _) = self.lstm(x)
+        output, (h, _) = self.lstm(x)
+        # Use last hidden state from both directions
         h = torch.cat((h[-2], h[-1]), dim=1)
         h = self.dropout(h)
-        return self.fc(h)
+        h = self.relu(self.fc1(h))
+        h = self.dropout(h)
+        return self.fc2(h)
 
 # ----------------------------
 # RNN Training/Evaluation
 # ----------------------------
-def train_rnn(model, epochs=7):
+def train_rnn(model, epochs=3):
     model.to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+    # Use AdamW for better convergence and cosine annealing for learning rate
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
     criterion = nn.CrossEntropyLoss()
-    model.train()
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     
+    model.train()
     for epoch in range(epochs):
         total_loss = 0
+        correct = 0
+        total = 0
+        
         for batch in tqdm(train_loader, desc=f"Training {model.__class__.__name__}"):
             x = batch["input_ids"].to(device)
             y = batch["label"].to(device)
@@ -123,9 +139,17 @@ def train_rnn(model, epochs=7):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
+            
+            # Track training accuracy
+            preds = torch.argmax(out, dim=1)
+            correct += (preds == y).sum().item()
+            total += y.size(0)
         
         avg_loss = total_loss / len(train_loader)
-        print(f"Epoch {epoch+1}, Loss: {avg_loss:.4f}")
+        train_acc = correct / total
+        scheduler.step()
+        
+        print(f"Epoch {epoch+1}, Loss: {avg_loss:.4f}, Train Acc: {train_acc:.4f}")
 
 def eval_rnn(model):
     model.eval()
@@ -190,11 +214,12 @@ def run_transformer(model_name):
     return metrics['eval_accuracy']
 
 # ----------------------------
-# Run All Models with Timing
+# Run All Models
 # ----------------------------
 results = {}
 model_details = {}
 
+# Train RNN models
 rnn_models = {"GRU": GRUClassifier(vocab_size), "BiLSTM": BiLSTMClassifier(vocab_size)}
 for name, model in rnn_models.items():
     print(f"\nTraining {name}")
@@ -222,9 +247,27 @@ for name, model in rnn_models.items():
     
     print(f"{name} Accuracy: {acc:.4f}, Training Time: {training_time:.2f}s")
 
-# Commented out DistilBERT training to focus on RNN models
-# results["DistilBERT"] = run_transformer("distilbert-base-uncased")
-# print(f"DistilBERT Accuracy: {results['DistilBERT']:.4f}")
+# Train DistilBERT model
+print(f"\nTraining DistilBERT")
+start_time = time.time()
+
+# Load DistilBERT model to count parameters
+distilbert_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+distilbert_params = sum(p.numel() for p in distilbert_model.parameters())
+distilbert_trainable_params = sum(p.numel() for p in distilbert_model.parameters() if p.requires_grad())
+
+distilbert_acc = run_transformer("distilbert-base-uncased")
+distilbert_time = time.time() - start_time
+
+results["DistilBERT"] = distilbert_acc
+model_details["DistilBERT"] = {
+    'accuracy': distilbert_acc,
+    'training_time': distilbert_time,
+    'total_params': distilbert_params,
+    'trainable_params': distilbert_trainable_params
+}
+
+print(f"DistilBERT Accuracy: {distilbert_acc:.4f}, Training Time: {distilbert_time:.2f}s, Parameters: {distilbert_params:,}")
 
 # ----------------------------
 # Comprehensive Results and Visualizations
@@ -243,8 +286,8 @@ for name, details in model_details.items():
     })
 
 df_detailed = pd.DataFrame(detailed_results)
-df_detailed.to_csv("detailed_results.csv", index=False)
-print("Saved detailed_results.csv")
+df_detailed.to_csv("results/detailed_results.csv", index=False)
+print("Saved results/detailed_results.csv")
 print(df_detailed)
 
 # Create comprehensive visualizations
@@ -286,9 +329,9 @@ for i, name in enumerate(results.keys()):
                       xytext=(5, 5), textcoords='offset points')
 
 plt.tight_layout()
-plt.savefig("comprehensive_comparison.png", bbox_inches="tight", dpi=300)
+plt.savefig("results/comprehensive_comparison.png", bbox_inches="tight", dpi=300)
 plt.show()
-print("Saved comprehensive_comparison.png")
+print("Saved results/comprehensive_comparison.png")
 
 # Print summary
 print("\n" + "="*50)
