@@ -4,12 +4,14 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from datasets import load_dataset, Dataset as HFDataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
 import random
 from collections import Counter
+import time
+import numpy as np
 
 # ----------------------------
 # Device
@@ -18,11 +20,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 # ----------------------------
-# Load IMDb Dataset (larger subset for better training)
+# Load IMDb Dataset
 # ----------------------------
 dataset = load_dataset("imdb")
 random.seed(42)
-# Increase dataset size for better learning
 train_indices = random.sample(range(len(dataset["train"])), 5000)
 test_indices = random.sample(range(len(dataset["test"])), 1000)
 
@@ -74,11 +75,11 @@ test_loader = DataLoader(test_dataset_rnn, batch_size=32)
 # RNN Models
 # ----------------------------
 class GRUClassifier(nn.Module):
-    def __init__(self, vocab_size, embed_dim=256, hidden_dim=512):
+    def __init__(self, vocab_size, embed_dim=300, hidden_dim=600):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         self.gru = nn.GRU(embed_dim, hidden_dim, batch_first=True)
-        self.dropout = nn.Dropout(0.3)
+        self.dropout = nn.Dropout(0.4)
         self.fc = nn.Linear(hidden_dim, 2)
         
     def forward(self, x):
@@ -88,11 +89,11 @@ class GRUClassifier(nn.Module):
         return self.fc(h)
 
 class BiLSTMClassifier(nn.Module):
-    def __init__(self, vocab_size, embed_dim=256, hidden_dim=512):
+    def __init__(self, vocab_size, embed_dim=300, hidden_dim=600):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         self.lstm = nn.LSTM(embed_dim, hidden_dim, bidirectional=True, batch_first=True)
-        self.dropout = nn.Dropout(0.3)
+        self.dropout = nn.Dropout(0.4)
         self.fc = nn.Linear(hidden_dim * 2, 2)
         
     def forward(self, x):
@@ -105,9 +106,9 @@ class BiLSTMClassifier(nn.Module):
 # ----------------------------
 # RNN Training/Evaluation
 # ----------------------------
-def train_rnn(model, epochs=5):
+def train_rnn(model, epochs=7):
     model.to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
     model.train()
     
@@ -189,34 +190,114 @@ def run_transformer(model_name):
     return metrics['eval_accuracy']
 
 # ----------------------------
-# Run All Models
+# Run All Models with Timing
 # ----------------------------
 results = {}
+model_details = {}
+
 rnn_models = {"GRU": GRUClassifier(vocab_size), "BiLSTM": BiLSTMClassifier(vocab_size)}
 for name, model in rnn_models.items():
     print(f"\nTraining {name}")
+    
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
+    # Measure training time
+    start_time = time.time()
     train_rnn(model, epochs=3)
+    training_time = time.time() - start_time
+    
+    # Evaluate model
     acc = eval_rnn(model)
+    
+    # Store results
     results[name] = acc
-    print(f"{name} Accuracy: {acc:.4f}")
+    model_details[name] = {
+        'accuracy': acc,
+        'training_time': training_time,
+        'total_params': total_params,
+        'trainable_params': trainable_params
+    }
+    
+    print(f"{name} Accuracy: {acc:.4f}, Training Time: {training_time:.2f}s")
 
-results["DistilBERT"] = run_transformer("distilbert-base-uncased")
-print(f"DistilBERT Accuracy: {results['DistilBERT']:.4f}")
+# Commented out DistilBERT training to focus on RNN models
+# results["DistilBERT"] = run_transformer("distilbert-base-uncased")
+# print(f"DistilBERT Accuracy: {results['DistilBERT']:.4f}")
 
 # ----------------------------
-# Save CSV and Plot
+# Comprehensive Results and Visualizations
 # ----------------------------
-df = pd.DataFrame(list(results.items()), columns=["Model","Accuracy"])
-df.to_csv("results.csv", index=False)
-print("Saved results.csv")
 
-plt.figure(figsize=(8,5))
-plt.bar(results.keys(), results.values(), color=['skyblue','lightgreen','orange'])
-plt.ylim(0,1)
-plt.ylabel("Accuracy")
-plt.title("Sentiment Model Comparison on IMDb")
+# Create detailed results DataFrame
+detailed_results = []
+for name, details in model_details.items():
+    detailed_results.append({
+        'Model': name,
+        'Accuracy': details['accuracy'],
+        'Training_Time_s': details['training_time'],
+        'Total_Params': details['total_params'],
+        'Trainable_Params': details['trainable_params'],
+        'Params_Millions': details['total_params'] / 1_000_000
+    })
+
+df_detailed = pd.DataFrame(detailed_results)
+df_detailed.to_csv("detailed_results.csv", index=False)
+print("Saved detailed_results.csv")
+print(df_detailed)
+
+# Create comprehensive visualizations
+fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+
+# 1. Accuracy Comparison
+axes[0, 0].bar(results.keys(), results.values(), color=['skyblue','lightgreen'])
+axes[0, 0].set_ylim(0, 1)
+axes[0, 0].set_ylabel("Accuracy")
+axes[0, 0].set_title("Model Accuracy Comparison")
 for i,v in enumerate(results.values()):
-    plt.text(i, v+0.01, f"{v:.2f}", ha='center')
-plt.savefig("accuracy_comparison.png", bbox_inches="tight")
+    axes[0, 0].text(i, v+0.01, f"{v:.3f}", ha='center')
+
+# 2. Training Time Comparison
+times = [model_details[name]['training_time'] for name in results.keys()]
+axes[0, 1].bar(results.keys(), times, color=['skyblue','lightgreen'])
+axes[0, 1].set_ylabel("Training Time (seconds)")
+axes[0, 1].set_title("Training Time Comparison")
+for i,v in enumerate(times):
+    axes[0, 1].text(i, v+1, f"{v:.1f}s", ha='center')
+
+# 3. Model Complexity (Parameters)
+params = [model_details[name]['total_params'] for name in results.keys()]
+param_labels = [f"{p/1_000_000:.1f}M" for p in params]
+axes[1, 0].bar(results.keys(), params, color=['skyblue','lightgreen'])
+axes[1, 0].set_ylabel("Total Parameters")
+axes[1, 0].set_title("Model Complexity")
+for i,v in enumerate(params):
+    axes[1, 0].text(i, v+50000, f"{v/1_000_000:.1f}M", ha='center')
+
+# 4. Efficiency: Accuracy vs Training Time
+axes[1, 1].scatter(times, [model_details[name]['accuracy'] for name in results.keys()], 
+                  s=[p/1000 for p in params], alpha=0.7, c=['skyblue','lightgreen'])
+axes[1, 1].set_xlabel("Training Time (seconds)")
+axes[1, 1].set_ylabel("Accuracy")
+axes[1, 1].set_title("Efficiency: Accuracy vs Training Time")
+for i, name in enumerate(results.keys()):
+    axes[1, 1].annotate(name, (times[i], model_details[name]['accuracy']), 
+                      xytext=(5, 5), textcoords='offset points')
+
+plt.tight_layout()
+plt.savefig("comprehensive_comparison.png", bbox_inches="tight", dpi=300)
 plt.show()
-print("Saved accuracy_comparison.png")
+print("Saved comprehensive_comparison.png")
+
+# Print summary
+print("\n" + "="*50)
+print("COMPREHENSIVE MODEL COMPARISON SUMMARY")
+print("="*50)
+for name, details in model_details.items():
+    print(f"\n{name} Model:")
+    print(f"  Accuracy: {details['accuracy']:.4f}")
+    print(f"  Training Time: {details['training_time']:.2f} seconds")
+    print(f"  Total Parameters: {details['total_params']:,}")
+    print(f"  Trainable Parameters: {details['trainable_params']:,}")
+    print(f"  Efficiency: {details['accuracy']/details['training_time']:.6f} accuracy/sec")
