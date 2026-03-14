@@ -2,12 +2,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
-from datasets import load_dataset
+from datasets import load_dataset, Dataset as HFDataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
+import random
 from collections import Counter
 
 # ----------------------------
@@ -20,10 +21,14 @@ print("Using device:", device)
 # Load IMDb Dataset (subset for local run)
 # ----------------------------
 dataset = load_dataset("imdb")
-train_texts = dataset["train"]["text"][:2000]  # 2000 samples
-train_labels = dataset["train"]["label"][:2000]
-test_texts = dataset["test"]["text"][:500]     # 500 samples
-test_labels = dataset["test"]["label"][:500]
+random.seed(42)
+train_indices = random.sample(range(len(dataset["train"])), 2000)
+test_indices = random.sample(range(len(dataset["test"])), 500)
+
+train_texts = [dataset["train"][i]["text"] for i in train_indices]
+train_labels = [dataset["train"][i]["label"] for i in train_indices]
+test_texts = [dataset["test"][i]["text"] for i in test_indices]
+test_labels = [dataset["test"][i]["label"] for i in test_indices]
 
 # ----------------------------
 # Simple integer tokenizer for RNNs
@@ -114,11 +119,11 @@ def eval_rnn(model):
     with torch.no_grad():
         for batch in test_loader:
             x = batch["input_ids"].to(device)
-            y = batch["label"]
+            y = batch["label"].to(device)
             out = model(x)
-            p = torch.argmax(out, dim=1).cpu()
-            preds.extend(p.numpy())
-            labels.extend(y.numpy())
+            p = torch.argmax(out, dim=1)
+            preds.extend(p.cpu().numpy())
+            labels.extend(y.cpu().numpy())
     return accuracy_score(labels, preds)
 
 # ----------------------------
@@ -126,13 +131,19 @@ def eval_rnn(model):
 # ----------------------------
 transformer_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 def run_transformer(model_name):
-    # Tokenize
-    def tokenize(batch):
-        return transformer_tokenizer(batch["text"], padding="max_length", truncation=True, max_length=128)
-    train_enc = transformer_tokenizer(train_texts, padding=True, truncation=True, max_length=128, return_tensors="pt")
-    test_enc = transformer_tokenizer(test_texts, padding=True, truncation=True, max_length=128, return_tensors="pt")
-    train_dataset = torch.utils.data.TensorDataset(train_enc["input_ids"], train_enc["attention_mask"], torch.tensor(train_labels))
-    test_dataset = torch.utils.data.TensorDataset(test_enc["input_ids"], test_enc["attention_mask"], torch.tensor(test_labels))
+    train_encodings = transformer_tokenizer(train_texts, padding=True, truncation=True, max_length=128)
+    test_encodings = transformer_tokenizer(test_texts, padding=True, truncation=True, max_length=128)
+
+    train_dataset = HFDataset.from_dict({
+        "input_ids": train_encodings["input_ids"],
+        "attention_mask": train_encodings["attention_mask"],
+        "labels": train_labels
+    })
+    test_dataset = HFDataset.from_dict({
+        "input_ids": test_encodings["input_ids"],
+        "attention_mask": test_encodings["attention_mask"],
+        "labels": test_labels
+    })
 
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
 
@@ -146,7 +157,7 @@ def run_transformer(model_name):
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
         num_train_epochs=3,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="no",
         logging_steps=50,
         disable_tqdm=False
@@ -168,7 +179,6 @@ def run_transformer(model_name):
 # Run All Models
 # ----------------------------
 results = {}
-# RNNs
 rnn_models = {"GRU": GRUClassifier(vocab_size), "BiLSTM": BiLSTMClassifier(vocab_size)}
 for name, model in rnn_models.items():
     print(f"\nTraining {name}")
@@ -177,7 +187,6 @@ for name, model in rnn_models.items():
     results[name] = acc
     print(f"{name} Accuracy: {acc:.4f}")
 
-# Transformer
 results["DistilBERT"] = run_transformer("distilbert-base-uncased")
 print(f"DistilBERT Accuracy: {results['DistilBERT']:.4f}")
 
