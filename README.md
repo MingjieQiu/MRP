@@ -2,19 +2,31 @@
 
 MSCS2201-2: Artificial Intelligence @ Sofia University
 
-Assignment #7.1: Attack MNIST Recognition
-
 # Sentiment Model Comparison
 
-This project compares 5 models for sentiment analysis on the IMDb dataset:
+## Project Goal
 
-- GRU (Gated Recurrent Unit)  
-- BiLSTM (Bidirectional LSTM)  
-- DistilBERT (Transformer)  
-- RoBERTa (Transformer)  
-- DeBERTa (Transformer)  
+This project aims to compare the performance of different neural network architectures for sentiment analysis on movie reviews. The goal is to evaluate how traditional recurrent neural networks (RNNs) compare to modern transformer-based models in terms of accuracy, training efficiency, and model complexity.
 
-It trains, evaluates, and visualizes the accuracy of each model.
+## Dataset Description
+
+The project uses the **IMDb Large Movie Review Dataset**, which contains:
+- 50,000 movie reviews labeled as positive or negative
+- 25,000 reviews for training and 25,000 for testing
+- Each review is labeled with a binary sentiment score (0 = negative, 1 = positive)
+- Reviews vary in length from a few sentences to several paragraphs
+
+For this comparison, we use a subset of 5,000 training reviews and 1,000 test reviews to ensure reasonable training times while maintaining statistical significance.
+
+## Models Compared
+
+This project compares the following neural network architectures:
+
+- **GRU (Gated Recurrent Unit)**: A type of recurrent neural network optimized for sequence processing
+- **BiLSTM (Bidirectional LSTM)**: Long Short-Term Memory network that processes sequences in both directions
+- **DistilBERT**: A smaller, faster version of BERT that maintains high performance
+
+The project trains, evaluates, and visualizes the accuracy of each model to provide insights into the trade-offs between model complexity, training time, and predictive performance.
 
 ---
 
