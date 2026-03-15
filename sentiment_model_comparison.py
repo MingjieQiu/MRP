@@ -27,7 +27,7 @@ def load_imdb_dataset():
     train_labels = [dataset["train"][i]["label"] for i in train_indices]
     test_texts = [dataset["test"][i]["text"] for i in test_indices]
     test_labels = [dataset["test"][i]["label"] for i in test_indices]
-    
+
     return train_texts, train_labels, test_texts, test_labels
 
 
@@ -101,7 +101,8 @@ class GRUClassifier(nn.Module):
     def __init__(self, vocab_size: int, embed_dim: int = 300, hidden_dim: int = 600):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)  # Word embedding layer
-        self.gru = nn.GRU(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)  # Bidirectional GRU
+        self.gru = nn.GRU(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3,
+                          bidirectional=True)  # Bidirectional GRU
         self.dropout = nn.Dropout(0.5)  # Dropout for regularization
         self.fc1 = nn.Linear(hidden_dim * 2, 256)  # First fully connected layer
         self.fc2 = nn.Linear(256, 2)  # Output layer for binary classification
@@ -130,7 +131,8 @@ class BiLSTMClassifier(nn.Module):
     def __init__(self, vocab_size: int, embed_dim: int = 300, hidden_dim: int = 600):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)  # Word embedding layer
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)  # Bidirectional LSTM
+        self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3,
+                            bidirectional=True)  # Bidirectional LSTM
         self.dropout = nn.Dropout(0.5)  # Dropout for regularization
         self.fc1 = nn.Linear(hidden_dim * 2, 256)  # First fully connected layer
         self.fc2 = nn.Linear(256, 2)  # Output layer for binary classification
@@ -147,7 +149,7 @@ class BiLSTMClassifier(nn.Module):
         return self.fc2(h)  # Return logits for classification
 
 
-def train_rnn(model: nn.Module, train_loader: DataLoader, epochs: int = 6) -> list[float]:
+def train_rnn(model: nn.Module, train_loader: DataLoader, epochs: int = 1) -> list[float]:
     """
     Train RNN model for sentiment classification.
     Args:
@@ -165,7 +167,7 @@ def train_rnn(model: nn.Module, train_loader: DataLoader, epochs: int = 6) -> li
 
     model.train()
     epoch_accuracies = []
-    
+
     for epoch in range(epochs):
         total_loss = 0
         correct = 0
@@ -192,7 +194,7 @@ def train_rnn(model: nn.Module, train_loader: DataLoader, epochs: int = 6) -> li
         scheduler.step()  # Update learning rate
 
         print(f"Epoch {epoch + 1}, Loss: {avg_loss:.4f}, Train Acc: {train_acc:.4f}")
-    
+
     return epoch_accuracies
 
 
@@ -218,8 +220,8 @@ def eval_rnn(model: nn.Module, test_loader: DataLoader) -> float:
     return accuracy_score(labels, preds)
 
 
-def run_transformer(model_name: str, train_texts: list[str], train_labels: list[int], 
-                   test_texts: list[str], test_labels: list[int]) -> float:
+def run_transformer(model_name: str, train_texts: list[str], train_labels: list[int],
+                    test_texts: list[str], test_labels: list[int]) -> tuple[float, list[float]]:
     """
     Train and evaluate transformer model (DistilBERT) for sentiment classification.
     Args:
@@ -229,7 +231,7 @@ def run_transformer(model_name: str, train_texts: list[str], train_labels: list[
         test_texts (list): Test text data
         test_labels (list): Test labels
     Returns:
-        float: Accuracy score
+        tuple: Final accuracy score and list of training accuracies per epoch
     """
     transformer_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
     train_encodings = transformer_tokenizer(train_texts, padding=True, truncation=True, max_length=128)
@@ -248,16 +250,24 @@ def run_transformer(model_name: str, train_texts: list[str], train_labels: list[
 
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)  # Load pretrained model
 
+    training_accuracies = []
+
     def compute_metrics(eval_pred):
         logits, labels = eval_pred  # Extract logits and labels
         preds = logits.argmax(axis=1)  # Get predicted class
-        return {"accuracy": accuracy_score(labels, preds)}
+        accuracy = accuracy_score(labels, preds)
+
+        # Store training accuracy for this epoch
+        if hasattr(trainer, 'state') and trainer.state.epoch is not None:
+            training_accuracies.append(accuracy)
+
+        return {"accuracy": accuracy}
 
     args = TrainingArguments(
         output_dir="./results",  # Output directory
         per_device_train_batch_size=8,  # Training batch size
         per_device_eval_batch_size=8,  # Evaluation batch size
-        num_train_epochs=6,  # Number of training epochs
+        num_train_epochs=1,  # Number of training epochs
         eval_strategy="epoch",  # Evaluate at each epoch
         save_strategy="no",  # Don't save checkpoints
         logging_steps=50,  # Log every 50 steps
@@ -274,34 +284,29 @@ def run_transformer(model_name: str, train_texts: list[str], train_labels: list[
 
     trainer.train()
     metrics = trainer.evaluate()
-    return metrics['eval_accuracy']
+    return metrics['eval_accuracy'], training_accuracies
 
 
 def save_epoch_accuracies(epoch_accuracies: dict, max_epochs: int) -> None:
     """Save epoch accuracy data to CSV file."""
     print("\nSaving epoch accuracy data...")
-    epoch_data = []
 
-    for epoch in range(max_epochs):
-        row = {'Epoch': epoch + 1}
-        for model_name in ['GRU', 'BiLSTM', 'DistilBERT']:
-            if model_name in epoch_accuracies:
-                if epoch < len(epoch_accuracies[model_name]):
-                    row[model_name] = epoch_accuracies[model_name][epoch]
-                else:
-                    row[model_name] = None
-            else:
-                # For DistilBERT, we don't have per-epoch training accuracy from the trainer
-                # so we'll use the final accuracy for all epochs or leave as None
-                row[model_name] = None
-        epoch_data.append(row)
+    # Create DataFrame with epoch numbers as index
+    df_epochs = pd.DataFrame({'Epoch': range(1, max_epochs + 1)})
 
-    df_epochs = pd.DataFrame(epoch_data)
+    # Add accuracy data for each model
+    for model_name in ['GRU', 'BiLSTM', 'DistilBERT']:
+        if model_name in epoch_accuracies:
+            # Pad with None if model has fewer epochs than max_epochs
+            accuracies = epoch_accuracies[model_name] + [None] * (max_epochs - len(epoch_accuracies[model_name]))
+            df_epochs[model_name] = accuracies
+
     df_epochs.to_csv("results/epoch_accuracies.csv", index=False)
     print("Saved results/epoch_accuracies.csv")
 
 
-def create_comprehensive_visualizations(results: dict, model_details: dict, epoch_accuracies: dict, max_epochs: int) -> None:
+def create_comprehensive_visualizations(results: dict, model_details: dict, epoch_accuracies: dict,
+                                        max_epochs: int) -> None:
     """Create comprehensive model comparison visualizations."""
     # Create detailed results DataFrame
     detailed_results = []
@@ -369,18 +374,10 @@ def create_epoch_accuracy_plot(epoch_accuracies: dict, results: dict, max_epochs
     print("Creating combined accuracy vs epochs plot...")
     plt.figure(figsize=(12, 8))
 
-    # Plot RNN models (GRU and BiLSTM)
-    for model_name in ['GRU', 'BiLSTM']:
+    for model_name in ['GRU', 'BiLSTM', 'DistilBERT']:
         if model_name in epoch_accuracies:
             epochs = range(1, len(epoch_accuracies[model_name]) + 1)
             plt.plot(epochs, epoch_accuracies[model_name], marker='o', linewidth=2, label=model_name)
-
-    # For DistilBERT, we'll create a simple line showing the final accuracy
-    # since we don't have per-epoch training accuracy from the trainer
-    if 'DistilBERT' in results:
-        final_acc = results['DistilBERT']
-        max_rnn_epochs = max(len(epoch_accuracies.get(name, [])) for name in ['GRU', 'BiLSTM'])
-        plt.axhline(y=final_acc, color='orange', linestyle='--', linewidth=2, label='DistilBERT (Final)')
 
     plt.xlabel('Epoch')
     plt.ylabel('Training Accuracy')
@@ -389,7 +386,7 @@ def create_epoch_accuracy_plot(epoch_accuracies: dict, results: dict, max_epochs
     plt.grid(True, alpha=0.3)
     plt.xlim(1, max_epochs)
     plt.ylim(0, 1)
-    plt.yticks([i/10 for i in range(11)])
+    plt.yticks([i / 10 for i in range(11)])
     plt.tight_layout()
     plt.savefig("results/accuracy_vs_epochs.png", bbox_inches="tight", dpi=300)
     plt.show()
@@ -413,7 +410,7 @@ def print_model_summary(model_details: dict) -> None:
 def main():
     """Main execution function."""
     print("Using device:", device)
-    
+
     # Step 1: Load and prepare data
     train_texts, train_labels, test_texts, test_labels = load_imdb_dataset()
     vocab = build_vocab(train_texts)
@@ -442,7 +439,7 @@ def main():
 
         # Measure training time
         start_time = time.time()
-        epoch_acc = train_rnn(model, train_loader, epochs=6)
+        epoch_acc = train_rnn(model, train_loader, epochs=1)
         training_time = time.time() - start_time
 
         # Evaluate model
@@ -469,7 +466,8 @@ def main():
     distilbert_params = sum(p.numel() for p in distilbert_model.parameters())
     distilbert_trainable_params = sum(p.numel() for p in distilbert_model.parameters() if p.requires_grad)
 
-    distilbert_acc = run_transformer("distilbert-base-uncased", train_texts, train_labels, test_texts, test_labels)
+    distilbert_acc, distilbert_epoch_acc = run_transformer("distilbert-base-uncased", train_texts, train_labels,
+                                                           test_texts, test_labels)
     distilbert_time = time.time() - start_time
 
     results["DistilBERT"] = distilbert_acc
@@ -479,6 +477,7 @@ def main():
         'total_params': distilbert_params,
         'trainable_params': distilbert_trainable_params
     }
+    epoch_accuracies["DistilBERT"] = distilbert_epoch_acc
 
     print(
         f"DistilBERT Accuracy: {distilbert_acc:.4f}, Training Time: {distilbert_time:.2f}s, Parameters: {distilbert_params:,}")
