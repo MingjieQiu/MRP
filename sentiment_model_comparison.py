@@ -18,7 +18,7 @@ print("Using device:", device)
 
 # Load IMDb Dataset
 dataset = load_dataset("imdb")
-random.seed(42)
+random.seed(42)  # Set random seed for reproducibility
 train_indices = random.sample(range(len(dataset["train"])), 5000)
 test_indices = random.sample(range(len(dataset["test"])), 1000)
 
@@ -40,9 +40,9 @@ def build_vocab(texts: list[str], max_vocab: int = 10000) -> dict[str, int]:
     """
     counter = Counter()
     for t in texts:
-        counter.update(t.lower().split())
-    vocab = {"<PAD>": 0, "<UNK>": 1}
-    for i, word in enumerate(counter.most_common(max_vocab - 2), start=2):
+        counter.update(t.lower().split())  # Convert to lowercase and split into words
+    vocab = {"<PAD>": 0, "<UNK>": 1}  # Special tokens for padding and unknown words
+    for i, word in enumerate(counter.most_common(max_vocab - 2), start=2):  # Reserve indices 0 and 1
         vocab[word[0]] = i
     return vocab
 
@@ -62,11 +62,11 @@ def encode(text: str, vocab: dict[str, int], max_len: int = 128) -> list[int]:
     Returns:
         list: Encoded token sequence
     """
-    tokens = [vocab.get(w, 1) for w in text.lower().split()]
+    tokens = [vocab.get(w, 1) for w in text.lower().split()]  # Convert words to indices, use <UNK> for unknown
     if len(tokens) < max_len:
-        tokens += [0] * (max_len - len(tokens))
+        tokens += [0] * (max_len - len(tokens))  # Pad with <PAD> tokens
     else:
-        tokens = tokens[:max_len]
+        tokens = tokens[:max_len]  # Truncate if too long
     return tokens
 
 
@@ -88,7 +88,7 @@ class RNNDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        return {"input_ids": torch.tensor(self.encodings[idx], dtype=torch.long),
+        return {"input_ids": torch.tensor(self.encodings[idx], dtype=torch.long),  # Convert to tensor
                 "label": torch.tensor(self.labels[idx], dtype=torch.long)}
 
 
@@ -110,22 +110,22 @@ class GRUClassifier(nn.Module):
 
     def __init__(self, vocab_size: int, embed_dim: int = 300, hidden_dim: int = 600):
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
-        self.gru = nn.GRU(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)
-        self.dropout = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(hidden_dim * 2, 256)
-        self.fc2 = nn.Linear(256, 2)
-        self.relu = nn.ReLU()
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)  # Word embedding layer
+        self.gru = nn.GRU(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)  # Bidirectional GRU
+        self.dropout = nn.Dropout(0.5)  # Dropout for regularization
+        self.fc1 = nn.Linear(hidden_dim * 2, 256)  # First fully connected layer
+        self.fc2 = nn.Linear(256, 2)  # Output layer for binary classification
+        self.relu = nn.ReLU()  # ReLU activation function
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.embedding(x)
-        output, h = self.gru(x)
-        # Use last hidden state from both directions
-        h = torch.cat((h[-2], h[-1]), dim=1)
-        h = self.dropout(h)
-        h = self.relu(self.fc1(h))
-        h = self.dropout(h)
-        return self.fc2(h)
+        x = self.embedding(x)  # Convert token indices to embeddings
+        output, h = self.gru(x)  # Process through GRU
+        # Use last hidden state from both directions (forward and backward)
+        h = torch.cat((h[-2], h[-1]), dim=1)  # Concatenate final forward and backward hidden states
+        h = self.dropout(h)  # Apply dropout
+        h = self.relu(self.fc1(h))  # Apply ReLU activation
+        h = self.dropout(h)  # Apply dropout again
+        return self.fc2(h)  # Return logits for classification
 
 
 class BiLSTMClassifier(nn.Module):
@@ -139,22 +139,22 @@ class BiLSTMClassifier(nn.Module):
 
     def __init__(self, vocab_size: int, embed_dim: int = 300, hidden_dim: int = 600):
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)
-        self.dropout = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(hidden_dim * 2, 256)
-        self.fc2 = nn.Linear(256, 2)
-        self.relu = nn.ReLU()
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)  # Word embedding layer
+        self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)  # Bidirectional LSTM
+        self.dropout = nn.Dropout(0.5)  # Dropout for regularization
+        self.fc1 = nn.Linear(hidden_dim * 2, 256)  # First fully connected layer
+        self.fc2 = nn.Linear(256, 2)  # Output layer for binary classification
+        self.relu = nn.ReLU()  # ReLU activation function
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.embedding(x)
-        output, (h, _) = self.lstm(x)
-        # Use last hidden state from both directions
-        h = torch.cat((h[-2], h[-1]), dim=1)
-        h = self.dropout(h)
-        h = self.relu(self.fc1(h))
-        h = self.dropout(h)
-        return self.fc2(h)
+        x = self.embedding(x)  # Convert token indices to embeddings
+        output, (h, _) = self.lstm(x)  # Process through LSTM, ignore cell state
+        # Use last hidden state from both directions (forward and backward)
+        h = torch.cat((h[-2], h[-1]), dim=1)  # Concatenate final forward and backward hidden states
+        h = self.dropout(h)  # Apply dropout
+        h = self.relu(self.fc1(h))  # Apply ReLU activation
+        h = self.dropout(h)  # Apply dropout again
+        return self.fc2(h)  # Return logits for classification
 
 
 # RNN Training/Evaluation
@@ -167,9 +167,9 @@ def train_rnn(model: nn.Module, epochs: int = 3) -> None:
     """
     model.to(device)
     # Use AdamW for better convergence and cosine annealing for learning rate
-    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
-    criterion = nn.CrossEntropyLoss()
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)  # AdamW optimizer with weight decay
+    criterion = nn.CrossEntropyLoss()  # Cross-entropy loss for classification
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)  # Cosine learning rate scheduler
 
     model.train()
     for epoch in range(epochs):
@@ -180,21 +180,21 @@ def train_rnn(model: nn.Module, epochs: int = 3) -> None:
         for batch in tqdm(train_loader, desc=f"Training {model.__class__.__name__}"):
             x = batch["input_ids"].to(device)
             y = batch["label"].to(device)
-            optimizer.zero_grad()
-            out = model(x)
-            loss = criterion(out, y)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
+            optimizer.zero_grad()  # Clear gradients
+            out = model(x)  # Forward pass
+            loss = criterion(out, y)  # Compute loss
+            loss.backward()  # Backward pass
+            optimizer.step()  # Update weights
+            total_loss += loss.item()  # Accumulate loss
 
             # Track training accuracy
-            preds = torch.argmax(out, dim=1)
-            correct += (preds == y).sum().item()
-            total += y.size(0)
+            preds = torch.argmax(out, dim=1)  # Get predicted class
+            correct += (preds == y).sum().item()  # Count correct predictions
+            total += y.size(0)  # Count total samples
 
-        avg_loss = total_loss / len(train_loader)
-        train_acc = correct / total
-        scheduler.step()
+        avg_loss = total_loss / len(train_loader)  # Average loss per batch
+        train_acc = correct / total  # Training accuracy
+        scheduler.step()  # Update learning rate
 
         print(f"Epoch {epoch + 1}, Loss: {avg_loss:.4f}, Train Acc: {train_acc:.4f}")
 
@@ -209,14 +209,14 @@ def eval_rnn(model: nn.Module) -> float:
     """
     model.eval()
     preds, labels = [], []
-    with torch.no_grad():
+    with torch.no_grad():  # Disable gradient computation for efficiency
         for batch in test_loader:
             x = batch["input_ids"].to(device)
             y = batch["label"].to(device)
-            out = model(x)
-            p = torch.argmax(out, dim=1)
-            preds.extend(p.cpu().numpy())
-            labels.extend(y.cpu().numpy())
+            out = model(x)  # Forward pass
+            p = torch.argmax(out, dim=1)  # Get predicted class
+            preds.extend(p.cpu().numpy())  # Store predictions
+            labels.extend(y.cpu().numpy())  # Store true labels
     return accuracy_score(labels, preds)
 
 
@@ -236,9 +236,9 @@ def run_transformer(model_name: str) -> float:
     test_encodings = transformer_tokenizer(test_texts, padding=True, truncation=True, max_length=128)
 
     train_dataset = HFDataset.from_dict({
-        "input_ids": train_encodings["input_ids"],
-        "attention_mask": train_encodings["attention_mask"],
-        "labels": train_labels
+        "input_ids": train_encodings["input_ids"],  # Tokenized input IDs
+        "attention_mask": train_encodings["attention_mask"],  # Attention masks
+        "labels": train_labels  # Training labels
     })
     test_dataset = HFDataset.from_dict({
         "input_ids": test_encodings["input_ids"],
@@ -246,22 +246,22 @@ def run_transformer(model_name: str) -> float:
         "labels": test_labels
     })
 
-    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)  # Load pretrained model
 
     def compute_metrics(eval_pred):
-        logits, labels = eval_pred
-        preds = logits.argmax(axis=1)
+        logits, labels = eval_pred  # Extract logits and labels
+        preds = logits.argmax(axis=1)  # Get predicted class
         return {"accuracy": accuracy_score(labels, preds)}
 
     args = TrainingArguments(
-        output_dir="./results",
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
-        num_train_epochs=3,
-        eval_strategy="epoch",
-        save_strategy="no",
-        logging_steps=50,
-        disable_tqdm=False
+        output_dir="./results",  # Output directory
+        per_device_train_batch_size=8,  # Training batch size
+        per_device_eval_batch_size=8,  # Evaluation batch size
+        num_train_epochs=3,  # Number of training epochs
+        eval_strategy="epoch",  # Evaluate at each epoch
+        save_strategy="no",  # Don't save checkpoints
+        logging_steps=50,  # Log every 50 steps
+        disable_tqdm=False  # Show progress bars
     )
 
     trainer = Trainer(
