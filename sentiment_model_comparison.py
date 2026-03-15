@@ -12,7 +12,6 @@ import random
 from collections import Counter
 import time
 
-# Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -149,7 +148,7 @@ class BiLSTMClassifier(nn.Module):
         return self.fc2(h)  # Return logits for classification
 
 
-def train_rnn(model: nn.Module, train_loader: DataLoader, epochs: int = 1) -> list[float]:
+def train_rnn(model: nn.Module, train_loader: DataLoader, epochs: int = 2) -> list[float]:
     """
     Train RNN model for sentiment classification.
     Args:
@@ -267,7 +266,7 @@ def run_transformer(model_name: str, train_texts: list[str], train_labels: list[
         output_dir="./results",  # Output directory
         per_device_train_batch_size=8,  # Training batch size
         per_device_eval_batch_size=8,  # Evaluation batch size
-        num_train_epochs=1,  # Number of training epochs
+        num_train_epochs=2,  # Number of training epochs
         eval_strategy="epoch",  # Evaluate at each epoch
         save_strategy="no",  # Don't save checkpoints
         logging_steps=50,  # Log every 50 steps
@@ -305,8 +304,7 @@ def save_epoch_accuracies(epoch_accuracies: dict, max_epochs: int) -> None:
     print("Saved results/epoch_accuracies.csv")
 
 
-def create_comprehensive_visualizations(results: dict, model_details: dict, epoch_accuracies: dict,
-                                        max_epochs: int) -> None:
+def create_comprehensive_visualizations(model_details: dict) -> None:
     """Create comprehensive model comparison visualizations."""
     # Create detailed results DataFrame
     detailed_results = []
@@ -329,6 +327,7 @@ def create_comprehensive_visualizations(results: dict, model_details: dict, epoc
     fig, axes = plt.subplots(2, 2, figsize=(15, 12))
 
     # 1. Accuracy Comparison
+    results = {name: details['accuracy'] for name, details in model_details.items()}
     axes[0, 0].bar(results.keys(), results.values(), color=['skyblue', 'lightgreen', 'orange'])
     axes[0, 0].set_ylim(0, 1)
     axes[0, 0].set_ylabel("Accuracy")
@@ -337,7 +336,7 @@ def create_comprehensive_visualizations(results: dict, model_details: dict, epoc
         axes[0, 0].text(i, v + 0.01, f"{v:.3f}", ha='center')
 
     # 2. Training Time Comparison
-    times = [model_details[name]['training_time'] for name in results.keys()]
+    times = [details['training_time'] for details in model_details.values()]
     axes[0, 1].bar(results.keys(), times, color=['skyblue', 'lightgreen', 'orange'])
     axes[0, 1].set_ylabel("Training Time (seconds)")
     axes[0, 1].set_title("Training Time Comparison")
@@ -345,7 +344,7 @@ def create_comprehensive_visualizations(results: dict, model_details: dict, epoc
         axes[0, 1].text(i, v + 1, f"{v:.1f}s", ha='center')
 
     # 3. Model Complexity (Parameters)
-    params = [model_details[name]['total_params'] for name in results.keys()]
+    params = [details['total_params'] for details in model_details.values()]
     param_labels = [f"{p / 1_000_000:.1f}M" for p in params]
     axes[1, 0].bar(results.keys(), params, color=['skyblue', 'lightgreen', 'orange'])
     axes[1, 0].set_ylabel("Total Parameters")
@@ -354,14 +353,13 @@ def create_comprehensive_visualizations(results: dict, model_details: dict, epoc
         axes[1, 0].text(i, v + 50000, f"{v / 1_000_000:.1f}M", ha='center')
 
     # 4. Efficiency: Accuracy vs Training Time
-    axes[1, 1].scatter(times, [model_details[name]['accuracy'] for name in results.keys()],
+    axes[1, 1].scatter(times, list(results.values()),
                        s=[p / 1000 for p in params], alpha=0.7, c=['skyblue', 'lightgreen', 'orange'])
     axes[1, 1].set_xlabel("Training Time (seconds)")
     axes[1, 1].set_ylabel("Accuracy")
     axes[1, 1].set_title("Efficiency: Accuracy vs Training Time")
     for i, name in enumerate(results.keys()):
-        axes[1, 1].annotate(name, (times[i], model_details[name]['accuracy']),
-                            xytext=(5, 5), textcoords='offset points')
+        axes[1, 1].annotate(name, (times[i], results[name]), xytext=(5, 5), textcoords='offset points')
 
     plt.tight_layout()
     plt.savefig("results/comprehensive_comparison.png", bbox_inches="tight", dpi=300)
@@ -369,7 +367,7 @@ def create_comprehensive_visualizations(results: dict, model_details: dict, epoc
     print("Saved results/comprehensive_comparison.png")
 
 
-def create_epoch_accuracy_plot(epoch_accuracies: dict, results: dict, max_epochs: int) -> None:
+def create_epoch_accuracy_plot(epoch_accuracies: dict, max_epochs: int) -> None:
     """Create combined accuracy vs epochs plot."""
     print("Creating combined accuracy vs epochs plot...")
     plt.figure(figsize=(12, 8))
@@ -439,7 +437,7 @@ def main():
 
         # Measure training time
         start_time = time.time()
-        epoch_acc = train_rnn(model, train_loader, epochs=1)
+        epoch_acc = train_rnn(model, train_loader, epochs=2)
         training_time = time.time() - start_time
 
         # Evaluate model
@@ -487,8 +485,8 @@ def main():
     save_epoch_accuracies(epoch_accuracies, max_epochs)
 
     # Step 4: Create visualizations
-    create_comprehensive_visualizations(results, model_details, epoch_accuracies, max_epochs)
-    create_epoch_accuracy_plot(epoch_accuracies, results, max_epochs)
+    create_comprehensive_visualizations(model_details)
+    create_epoch_accuracy_plot(epoch_accuracies, max_epochs)
 
     # Print summary
     print_model_summary(model_details)
