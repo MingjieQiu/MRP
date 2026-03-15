@@ -50,9 +50,9 @@ python sentiment_model_comparison.py
 
 | Model | Accuracy | Training Time (s) | Total Parameters | Trainable Parameters | Parameters (Millions) |
 |-------|----------|-------------------|------------------|---------------------|----------------------|
-| GRU | 0.709 | 394.12 | 13,042,370 | 13,042,370 | 13.04 |
-| BiLSTM | 0.642 | 509.67 | 16,287,170 | 16,287,170 | 16.29 |
-| DistilBERT | 0.861 | 793.84 | 66,955,010 | 66,955,010 | 66.96 |
+| GRU | 0.726 | 971.38 | 13,042,370 | 13,042,370 | 13.04 |
+| BiLSTM | 0.662 | 1,216.81 | 16,287,170 | 16,287,170 | 16.29 |
+| DistilBERT | 0.852 | 1,434.49 | 66,955,010 | 66,955,010 | 66.96 |
 
 
 ### Training Progress
@@ -60,11 +60,14 @@ Accuracy of each epoch
 
 | Epoch | GRU | BiLSTM | DistilBERT |
 |-------|-----|--------|------------|
-| 1 | 0.652 | 0.618 | - |
-| 2 | 0.687 | 0.634 | - |
-| 3 | 0.701 | 0.642 | - |
-| 4 | 0.708 | 0.645 | - |
-| 5 | 0.709 | 0.642 | - |
+| 1 | 0.544 | 0.5474 | 0.846 |
+| 2 | 0.6932 | 0.5324 | 0.837 |
+| 3 | 0.8228 | 0.5756 | 0.844 |
+| 4 | 0.9276 | 0.6542 | 0.848 |
+| 5 | 0.9818 | 0.7702 | 0.844 |
+| 6 | 0.9958 | 0.876 | 0.847 |
+| 7 | 0.9996 | 0.9408 | 0.855 |
+| 8 | 0.9998 | 0.973 | 0.852 |
 
 ### Visualization
 
@@ -83,8 +86,8 @@ The project generates a comprehensive comparison chart showing:
 
 ---
 
-1. **DistilBERT** achieved the highest accuracy (86.1%) but required the longest training time
-2. **GRU** provided the best balance of accuracy (70.9%) and training efficiency
-3. **BiLSTM** had the lowest accuracy (64.2%) among the tested models
+1. **DistilBERT** achieved the highest accuracy (85.2%) but required the longest training time (1,434.49s)
+2. **GRU** provided the best balance of accuracy (72.6%) and training efficiency (971.38s)
+3. **BiLSTM** had the lowest accuracy (66.2%) among the tested models
 4. Transformer models (DistilBERT) significantly outperformed RNN models in accuracy
 5. RNN models were faster to train but less accurate than transformer models
