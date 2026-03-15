@@ -158,7 +158,7 @@ class BiLSTMClassifier(nn.Module):
 
 
 # RNN Training/Evaluation
-def train_rnn(model: nn.Module, epochs: int = 3) -> None:
+def train_rnn(model: nn.Module, epochs: int = 10) -> None:
     """
     Train RNN model for sentiment classification.
     Args:
@@ -257,7 +257,7 @@ def run_transformer(model_name: str) -> float:
         output_dir="./results",  # Output directory
         per_device_train_batch_size=8,  # Training batch size
         per_device_eval_batch_size=8,  # Evaluation batch size
-        num_train_epochs=3,  # Number of training epochs
+        num_train_epochs=10,  # Number of training epochs
         eval_strategy="epoch",  # Evaluate at each epoch
         save_strategy="no",  # Don't save checkpoints
         logging_steps=50,  # Log every 50 steps
@@ -292,7 +292,7 @@ for name, model in rnn_models.items():
 
     # Measure training time
     start_time = time.time()
-    train_rnn(model, epochs=3)
+    train_rnn(model, epochs=10)
     training_time = time.time() - start_time
 
     # Evaluate model
