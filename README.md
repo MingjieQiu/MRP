@@ -42,9 +42,6 @@ python sentiment_model_comparison.py
 | BiLSTM | 0.642 | 509.67 | 16,287,170 | 16,287,170 | 16.29 |
 | DistilBERT | 0.861 | 793.84 | 66,955,010 | 66,955,010 | 66.96 |
 
-### Detailed Results
-
-The complete results are available in the CSV file: [results/detailed_results.csv](results/detailed_results.csv)
 
 ### Visualization
 
