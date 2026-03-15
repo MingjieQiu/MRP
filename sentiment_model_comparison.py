@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from datasets import load_dataset, Dataset as HFDataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -12,15 +12,11 @@ import random
 from collections import Counter
 import time
 
-# ----------------------------
 # Device
-# ----------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
-# ----------------------------
 # Load IMDb Dataset
-# ----------------------------
 dataset = load_dataset("imdb")
 random.seed(42)
 train_indices = random.sample(range(len(dataset["train"])), 5000)
@@ -32,10 +28,16 @@ test_texts = [dataset["test"][i]["text"] for i in test_indices]
 test_labels = [dataset["test"][i]["label"] for i in test_indices]
 
 
-# ----------------------------
 # Simple integer tokenizer for RNNs
-# ----------------------------
-def build_vocab(texts, max_vocab=10000):
+def build_vocab(texts: list[str], max_vocab: int = 10000) -> dict[str, int]:
+    """
+    Build vocabulary from text corpus.
+    Args:
+        texts (list): List of text strings
+        max_vocab (int): Maximum vocabulary size
+    Returns:
+        dict: Vocabulary mapping words to indices
+    """
     counter = Counter()
     for t in texts:
         counter.update(t.lower().split())
@@ -50,7 +52,16 @@ vocab_size = len(vocab)
 print(f"Vocabulary size: {vocab_size}")
 
 
-def encode(text, vocab, max_len=128):
+def encode(text: str, vocab: dict[str, int], max_len: int = 128) -> list[int]:
+    """
+    Convert text to integer sequence.   
+    Args:
+        text (str): Input text
+        vocab (dict): Vocabulary mapping
+        max_len (int): Maximum sequence length   
+    Returns:
+        list: Encoded token sequence
+    """
     tokens = [vocab.get(w, 1) for w in text.lower().split()]
     if len(tokens) < max_len:
         tokens += [0] * (max_len - len(tokens))
@@ -60,14 +71,23 @@ def encode(text, vocab, max_len=128):
 
 
 class RNNDataset(Dataset):
-    def __init__(self, texts, labels, vocab, max_len=128):
+    """
+    PyTorch Dataset for RNN models with integer tokenized text.
+    Args:
+        texts (list): List of text strings
+        labels (list): List of corresponding labels
+        vocab (dict): Vocabulary mapping words to indices
+        max_len (int): Maximum sequence length
+    """
+
+    def __init__(self, texts: list[str], labels: list[int], vocab: dict[str, int], max_len: int = 128):
         self.encodings = [encode(t, vocab, max_len) for t in texts]
         self.labels = labels
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.labels)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         return {"input_ids": torch.tensor(self.encodings[idx], dtype=torch.long),
                 "label": torch.tensor(self.labels[idx], dtype=torch.long)}
 
@@ -78,11 +98,17 @@ train_loader = DataLoader(train_dataset_rnn, batch_size=32, shuffle=True)
 test_loader = DataLoader(test_dataset_rnn, batch_size=32)
 
 
-# ----------------------------
 # RNN Models
-# ----------------------------
 class GRUClassifier(nn.Module):
-    def __init__(self, vocab_size, embed_dim=300, hidden_dim=600):
+    """
+    GRU-based text classifier for sentiment analysis.
+    Args:
+        vocab_size (int): Size of vocabulary
+        embed_dim (int): Embedding dimension
+        hidden_dim (int): Hidden layer dimension
+    """
+
+    def __init__(self, vocab_size: int, embed_dim: int = 300, hidden_dim: int = 600):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
         self.gru = nn.GRU(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)
@@ -91,7 +117,7 @@ class GRUClassifier(nn.Module):
         self.fc2 = nn.Linear(256, 2)
         self.relu = nn.ReLU()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.embedding(x)
         output, h = self.gru(x)
         # Use last hidden state from both directions
@@ -103,7 +129,15 @@ class GRUClassifier(nn.Module):
 
 
 class BiLSTMClassifier(nn.Module):
-    def __init__(self, vocab_size, embed_dim=300, hidden_dim=600):
+    """
+    Bidirectional LSTM-based text classifier for sentiment analysis.   
+    Args:
+        vocab_size (int): Size of vocabulary
+        embed_dim (int): Embedding dimension
+        hidden_dim (int): Hidden layer dimension
+    """
+
+    def __init__(self, vocab_size: int, embed_dim: int = 300, hidden_dim: int = 600):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
         self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.3, bidirectional=True)
@@ -112,7 +146,7 @@ class BiLSTMClassifier(nn.Module):
         self.fc2 = nn.Linear(256, 2)
         self.relu = nn.ReLU()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.embedding(x)
         output, (h, _) = self.lstm(x)
         # Use last hidden state from both directions
@@ -123,10 +157,14 @@ class BiLSTMClassifier(nn.Module):
         return self.fc2(h)
 
 
-# ----------------------------
 # RNN Training/Evaluation
-# ----------------------------
-def train_rnn(model, epochs=3):
+def train_rnn(model: nn.Module, epochs: int = 3) -> None:
+    """
+    Train RNN model for sentiment classification.
+    Args:
+        model (nn.Module): RNN model to train
+        epochs (int): Number of training epochs 
+    """
     model.to(device)
     # Use AdamW for better convergence and cosine annealing for learning rate
     optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
@@ -161,7 +199,14 @@ def train_rnn(model, epochs=3):
         print(f"Epoch {epoch + 1}, Loss: {avg_loss:.4f}, Train Acc: {train_acc:.4f}")
 
 
-def eval_rnn(model):
+def eval_rnn(model: nn.Module) -> float:
+    """
+    Evaluate RNN model on test dataset.
+    Args:
+        model (nn.Module): Trained RNN model
+    Returns:
+        float: Accuracy score
+    """
     model.eval()
     preds, labels = [], []
     with torch.no_grad():
@@ -175,13 +220,18 @@ def eval_rnn(model):
     return accuracy_score(labels, preds)
 
 
-# ----------------------------
 # Transformer (DistilBERT)
-# ----------------------------
 transformer_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 
 
-def run_transformer(model_name):
+def run_transformer(model_name: str) -> float:
+    """
+    Train and evaluate transformer model (DistilBERT) for sentiment classification.
+    Args:
+        model_name (str): Pretrained model name 
+    Returns:
+        float: Accuracy score
+    """
     train_encodings = transformer_tokenizer(train_texts, padding=True, truncation=True, max_length=128)
     test_encodings = transformer_tokenizer(test_texts, padding=True, truncation=True, max_length=128)
 
@@ -227,9 +277,7 @@ def run_transformer(model_name):
     return metrics['eval_accuracy']
 
 
-# ----------------------------
 # Run All Models
-# ----------------------------
 results = {}
 model_details = {}
 
@@ -284,10 +332,7 @@ model_details["DistilBERT"] = {
 print(
     f"DistilBERT Accuracy: {distilbert_acc:.4f}, Training Time: {distilbert_time:.2f}s, Parameters: {distilbert_params:,}")
 
-# ----------------------------
 # Comprehensive Results and Visualizations
-# ----------------------------
-
 # Create detailed results DataFrame
 detailed_results = []
 for name, details in model_details.items():
