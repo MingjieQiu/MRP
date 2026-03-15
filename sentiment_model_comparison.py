@@ -148,7 +148,7 @@ class BiLSTMClassifier(nn.Module):
         return self.fc2(h)  # Return logits for classification
 
 
-def train_rnn(model: nn.Module, train_loader: DataLoader, epochs: int = 2) -> list[float]:
+def train_rnn(model: nn.Module, train_loader: DataLoader, epochs: int = 8) -> list[float]:
     """
     Train RNN model for sentiment classification.
     Args:
@@ -258,7 +258,8 @@ def run_transformer(model_name: str, train_texts: list[str], train_labels: list[
 
         # Store training accuracy for this epoch
         if hasattr(trainer, 'state') and trainer.state.epoch is not None:
-            training_accuracies.append(accuracy)
+            if trainer.state.epoch <= trainer.args.num_train_epochs:
+                training_accuracies.append(accuracy)
 
         return {"accuracy": accuracy}
 
@@ -266,7 +267,7 @@ def run_transformer(model_name: str, train_texts: list[str], train_labels: list[
         output_dir="./results",  # Output directory
         per_device_train_batch_size=8,  # Training batch size
         per_device_eval_batch_size=8,  # Evaluation batch size
-        num_train_epochs=2,  # Number of training epochs
+        num_train_epochs=8,  # Number of training epochs
         eval_strategy="epoch",  # Evaluate at each epoch
         save_strategy="no",  # Don't save checkpoints
         logging_steps=50,  # Log every 50 steps
@@ -283,6 +284,11 @@ def run_transformer(model_name: str, train_texts: list[str], train_labels: list[
 
     trainer.train()
     metrics = trainer.evaluate()
+
+    expected_epochs = args.num_train_epochs
+    if len(training_accuracies) > expected_epochs:
+        training_accuracies = training_accuracies[:expected_epochs]
+
     return metrics['eval_accuracy'], training_accuracies
 
 
@@ -385,6 +391,7 @@ def create_epoch_accuracy_plot(epoch_accuracies: dict, max_epochs: int) -> None:
     plt.xlim(1, max_epochs)
     plt.ylim(0, 1)
     plt.yticks([i / 10 for i in range(11)])
+    plt.xticks(range(1, max_epochs + 1))
     plt.tight_layout()
     plt.savefig("results/accuracy_vs_epochs.png", bbox_inches="tight", dpi=300)
     plt.show()
@@ -437,7 +444,7 @@ def main():
 
         # Measure training time
         start_time = time.time()
-        epoch_acc = train_rnn(model, train_loader, epochs=2)
+        epoch_acc = train_rnn(model, train_loader, epochs=8)
         training_time = time.time() - start_time
 
         # Evaluate model
