@@ -11,7 +11,6 @@ import pandas as pd
 import random
 from collections import Counter
 import time
-import numpy as np
 
 # ----------------------------
 # Device
