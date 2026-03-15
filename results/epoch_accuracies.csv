@@ -1,0 +1,3 @@
+Epoch,GRU,BiLSTM,DistilBERT
+1,0.5522,0.5476,
+2,0.6922,0.6796,

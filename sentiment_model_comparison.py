@@ -158,12 +158,14 @@ class BiLSTMClassifier(nn.Module):
 
 
 # RNN Training/Evaluation
-def train_rnn(model: nn.Module, epochs: int = 10) -> None:
+def train_rnn(model: nn.Module, epochs: int = 6) -> list[float]:
     """
     Train RNN model for sentiment classification.
     Args:
         model (nn.Module): RNN model to train
         epochs (int): Number of training epochs 
+    Returns:
+        list: Training accuracy for each epoch
     """
     model.to(device)
     # Use AdamW for better convergence and cosine annealing for learning rate
@@ -172,6 +174,8 @@ def train_rnn(model: nn.Module, epochs: int = 10) -> None:
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)  # Cosine learning rate scheduler
 
     model.train()
+    epoch_accuracies = []
+    
     for epoch in range(epochs):
         total_loss = 0
         correct = 0
@@ -194,9 +198,12 @@ def train_rnn(model: nn.Module, epochs: int = 10) -> None:
 
         avg_loss = total_loss / len(train_loader)  # Average loss per batch
         train_acc = correct / total  # Training accuracy
+        epoch_accuracies.append(train_acc)  # Store epoch accuracy
         scheduler.step()  # Update learning rate
 
         print(f"Epoch {epoch + 1}, Loss: {avg_loss:.4f}, Train Acc: {train_acc:.4f}")
+    
+    return epoch_accuracies
 
 
 def eval_rnn(model: nn.Module) -> float:
@@ -257,7 +264,7 @@ def run_transformer(model_name: str) -> float:
         output_dir="./results",  # Output directory
         per_device_train_batch_size=8,  # Training batch size
         per_device_eval_batch_size=8,  # Evaluation batch size
-        num_train_epochs=10,  # Number of training epochs
+        num_train_epochs=6,  # Number of training epochs
         eval_strategy="epoch",  # Evaluate at each epoch
         save_strategy="no",  # Don't save checkpoints
         logging_steps=50,  # Log every 50 steps
@@ -280,6 +287,7 @@ def run_transformer(model_name: str) -> float:
 # Run All Models
 results = {}
 model_details = {}
+epoch_accuracies = {}
 
 # Train RNN models
 rnn_models = {"GRU": GRUClassifier(vocab_size), "BiLSTM": BiLSTMClassifier(vocab_size)}
@@ -292,7 +300,7 @@ for name, model in rnn_models.items():
 
     # Measure training time
     start_time = time.time()
-    train_rnn(model, epochs=10)
+    epoch_acc = train_rnn(model, epochs=6)
     training_time = time.time() - start_time
 
     # Evaluate model
@@ -306,6 +314,7 @@ for name, model in rnn_models.items():
         'total_params': total_params,
         'trainable_params': trainable_params
     }
+    epoch_accuracies[name] = epoch_acc
 
     print(f"{name} Accuracy: {acc:.4f}, Training Time: {training_time:.2f}s")
 
@@ -333,7 +342,7 @@ print(
     f"DistilBERT Accuracy: {distilbert_acc:.4f}, Training Time: {distilbert_time:.2f}s, Parameters: {distilbert_params:,}")
 
 # Comprehensive Results and Visualizations
-# Create detailed results DataFrame
+# 1. Create detailed results DataFrame to CSV
 detailed_results = []
 for name, details in model_details.items():
     detailed_results.append({
@@ -349,6 +358,29 @@ df_detailed = pd.DataFrame(detailed_results)
 df_detailed.to_csv("results/detailed_results.csv", index=False)
 print("Saved results/detailed_results.csv")
 print(df_detailed)
+
+# 2. Save epoch accuracy data to CSV
+print("\nSaving epoch accuracy data...")
+epoch_data = []
+max_epochs = max(len(acc_list) for acc_list in epoch_accuracies.values())
+
+for epoch in range(max_epochs):
+    row = {'Epoch': epoch + 1}
+    for model_name in ['GRU', 'BiLSTM', 'DistilBERT']:
+        if model_name in epoch_accuracies:
+            if epoch < len(epoch_accuracies[model_name]):
+                row[model_name] = epoch_accuracies[model_name][epoch]
+            else:
+                row[model_name] = None
+        else:
+            # For DistilBERT, we don't have per-epoch training accuracy from the trainer
+            # so we'll use the final accuracy for all epochs and just leave as None
+            row[model_name] = None
+    epoch_data.append(row)
+
+df_epochs = pd.DataFrame(epoch_data)
+df_epochs.to_csv("results/epoch_accuracies.csv", index=False)
+print("Saved results/epoch_accuracies.csv")
 
 # Create comprehensive visualizations
 fig, axes = plt.subplots(2, 2, figsize=(15, 12))
@@ -392,6 +424,35 @@ plt.tight_layout()
 plt.savefig("results/comprehensive_comparison.png", bbox_inches="tight", dpi=300)
 plt.show()
 print("Saved results/comprehensive_comparison.png")
+
+# 5. Create combined accuracy vs epochs plot
+print("Creating combined accuracy vs epochs plot...")
+plt.figure(figsize=(12, 8))
+
+# Plot RNN models (GRU and BiLSTM)
+for model_name in ['GRU', 'BiLSTM']:
+    if model_name in epoch_accuracies:
+        epochs = range(1, len(epoch_accuracies[model_name]) + 1)
+        plt.plot(epochs, epoch_accuracies[model_name], marker='o', linewidth=2, label=model_name)
+
+# For DistilBERT, we'll create a simple line showing the final accuracy
+# since we don't have per-epoch training accuracy from the trainer
+if 'DistilBERT' in results:
+    final_acc = results['DistilBERT']
+    max_rnn_epochs = max(len(epoch_accuracies.get(name, [])) for name in ['GRU', 'BiLSTM'])
+    plt.axhline(y=final_acc, color='orange', linestyle='--', linewidth=2, label='DistilBERT (Final)')
+
+plt.xlabel('Epoch')
+plt.ylabel('Training Accuracy')
+plt.title('Training Accuracy vs Epochs for All Models')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.xlim(1, max_epochs)
+plt.ylim(0, 1)
+plt.tight_layout()
+plt.savefig("results/accuracy_vs_epochs.png", bbox_inches="tight", dpi=300)
+plt.show()
+print("Saved results/accuracy_vs_epochs.png")
 
 # Print summary
 print("\n" + "=" * 50)

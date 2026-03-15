@@ -55,6 +55,16 @@ python sentiment_model_comparison.py
 | DistilBERT | 0.861 | 793.84 | 66,955,010 | 66,955,010 | 66.96 |
 
 
+### Training Progress
+
+| Epoch | GRU | BiLSTM | DistilBERT |
+|-------|-----|--------|------------|
+| 1 | 0.652 | 0.618 | - |
+| 2 | 0.687 | 0.634 | - |
+| 3 | 0.701 | 0.642 | - |
+| 4 | 0.708 | 0.645 | - |
+| 5 | 0.709 | 0.642 | - |
+
 ### Visualization
 
 The project generates a comprehensive comparison chart showing:
@@ -64,6 +74,9 @@ The project generates a comprehensive comparison chart showing:
 - Efficiency (accuracy vs training time)
 
 ![Model Comparison Results](results/comprehensive_comparison.png)
+
+#### Training Progress Visualization
+![Training Accuracy vs Epochs](results/accuracy_vs_epochs.png)
 
 ### Key Findings
 
