@@ -56,6 +56,7 @@ python sentiment_model_comparison.py
 
 
 ### Training Progress
+Accuracy of each epoch
 
 | Epoch | GRU | BiLSTM | DistilBERT |
 |-------|-----|--------|------------|
@@ -78,7 +79,9 @@ The project generates a comprehensive comparison chart showing:
 #### Training Progress Visualization
 ![Training Accuracy vs Epochs](results/accuracy_vs_epochs.png)
 
-### Key Findings
+## Key Findings
+
+---
 
 1. **DistilBERT** achieved the highest accuracy (86.1%) but required the longest training time
 2. **GRU** provided the best balance of accuracy (70.9%) and training efficiency
